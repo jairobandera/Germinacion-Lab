@@ -7,6 +7,7 @@ import csv
 from datetime import datetime
 import pandas as pd
 import re
+import shutil
 
 from ui.theme import apply_theme
 from ui.progress_window import ProgressWindow
@@ -18,7 +19,7 @@ from core.detectar_radicula import calibrar_r_simple, analizar_radicula
 class GerminIAApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("🌱 GerminIA Desktop")
+        self.title("🌱 GerminIA")
         self.geometry("1280x800")
         self.minsize(1000, 700)
         self.state('zoomed') 
@@ -47,16 +48,17 @@ class GerminIAApp(tk.Tk):
         add_btn("🕓 Ver pendientes", self.mostrar_pendientes)
         add_btn("⚙️ Procesar", self.ejecutar_procesamiento)
         ttk.Separator(sidebar, orient="horizontal").pack(fill="x", padx=20, pady=10)
-        add_btn("🧩 Ver placas", lambda: self.mostrar_carpeta("placas"), "Secondary.TButton")
+        add_btn("🧩 Ver placas", lambda: self.mostrar_carpeta("placas"), "Neutral.TButton")
         #add_btn("🧫 Ver recortadas", lambda: self.mostrar_recortadas_resultados(), "Secondary.TButton")
-        add_btn("📊 Ver resultados", lambda: self.mostrar_resultados_csv(), "Secondary.TButton")
+        add_btn("📊 Ver resultados", lambda: self.mostrar_resultados_csv(), "Info.TButton")
+        add_btn("🗑️ Eliminar resultados", self.eliminar_resultados, "Danger.TButton")
 
         # --- Botón Exportar a Excel (siempre al fondo) ---
         ttk.Separator(sidebar, orient="horizontal").pack(fill="x", padx=20, pady=(10, 6))
         self.btn_export_excel = ttk.Button(
             sidebar,
             text="📤 Exportar a Excel",
-            style="Secondary.TButton",
+            style="Success.TButton",
             command=self.exportar_excel
         )
         self.btn_export_excel.pack(side="bottom", fill="x", padx=20, pady=(4, 14))
@@ -836,3 +838,78 @@ class GerminIAApp(tk.Tk):
             )
         except Exception as e:
             messagebox.showerror("Exportar a Excel", f"Ocurrió un error al exportar:\n{e}")
+
+    # ============================================================
+    # ELIMINAR IMAGENES
+    # ============================================================
+
+    def eliminar_resultados(self):
+        """
+        Vacía el contenido de:
+        - data/germinacion/data/originales
+        - data/germinacion/data/procesadas/placa_recortada
+        - data/germinacion/data/procesadas/recortadas
+        - data/germinacion/data/resultados
+        Manteniendo SIEMPRE esas carpetas base.
+        """
+        base = os.path.join("data", "germinacion", "data")
+        targets = [
+            os.path.join(base, "originales"),
+            os.path.join(base, "procesadas", "placa_recortada"),
+            os.path.join(base, "procesadas", "recortadas"),
+            os.path.join(base, "resultados"),
+        ]
+
+        # Confirmación
+        msg = (
+            "Se eliminará TODO el contenido (imágenes, subcarpetas y archivos)\n"
+            "dentro de estas carpetas:\n\n"
+            "• originales\n• procesadas/placa_recortada\n• procesadas/recortadas\n• resultados\n\n"
+            "Las carpetas base permanecerán.\n\n¿Deseás continuar?"
+        )
+        if not messagebox.askyesno("Eliminar resultados", msg):
+            return
+
+        errores = []
+        total_borrados = 0
+
+        def _remove_readonly_and_retry(func, path, exc_info):
+            # en Windows a veces hay archivos de solo lectura
+            try:
+                os.chmod(path, 0o700)
+                func(path)
+            except Exception as e:
+                errores.append(f"{path}: {e}")
+
+        try:
+            for d in targets:
+                if not os.path.isdir(d):
+                    continue
+                for name in os.listdir(d):
+                    p = os.path.join(d, name)
+                    try:
+                        if os.path.isdir(p):
+                            shutil.rmtree(p, onerror=_remove_readonly_and_retry)
+                        else:
+                            os.remove(p)
+                        total_borrados += 1
+                    except Exception as e:
+                        errores.append(f"{p}: {e}")
+        finally:
+            # Refrescar UI y estados
+            self._set_export_enabled(False)
+            try:
+                self.mostrar_pendientes()
+            except Exception:
+                pass
+
+        if errores:
+            messagebox.showwarning(
+                "Eliminación parcial",
+                "Se borró la mayoría del contenido, pero hubo errores en algunos elementos.\n\n"
+                + "\n".join(errores[:10])  # mostramos hasta 10 para no saturar
+                + ("\n\n(Se omitieron más errores…)" if len(errores) > 10 else "")
+            )
+        else:
+            messagebox.showinfo("Eliminar resultados", f"✅ Limpieza finalizada. Elementos eliminados: {total_borrados}")
+

@@ -7,11 +7,52 @@ from datetime import datetime
 from skimage.morphology import skeletonize
 from skimage.util import invert
 import math
-import csv
-#from scipy.interpolate import splprep, splev
-import shutil
+from scipy.interpolate import splprep, splev
 import re
+# diálogos nativos
+try:
+    import tkinter as tk
+    from tkinter import messagebox
+except Exception:
+    tk = None
+    messagebox = None
 
+import ctypes  # para MessageBox de Windows (fallback)
+
+def confirmar_guardado(
+    line1="¿Guardar sin marcar codo?",
+    line2="Luego no se podrá marcar el codo.",
+    line3="Deberás borrar con R y redibujar si querés marcarlo después."
+):
+    msg = f"{line1}\n{line2}\n{line3}"
+    # Tkinter
+    if messagebox is not None:
+        try:
+            root = tk.Tk()
+            root.withdraw()
+            root.attributes("-topmost", True)
+            res = messagebox.askyesno("Confirmar guardado", msg, parent=root)
+            root.destroy()
+            return bool(res)
+        except Exception:
+            pass
+    # Windows (ctypes)
+    try:
+        MB_YESNO = 0x00000004
+        MB_ICONQUESTION = 0x00000020
+        MB_SYSTEMMODAL = 0x00001000
+        ret = ctypes.windll.user32.MessageBoxW(
+            0, msg, "Confirmar guardado", MB_YESNO | MB_ICONQUESTION | MB_SYSTEMMODAL
+        )
+        return ret == 6  # IDYES
+    except Exception:
+        pass
+    # Consola
+    try:
+        resp = input(f"{msg} [s/n]: ").strip().lower()
+        return resp in ("s", "si", "sí", "y", "yes")
+    except Exception:
+        return False
 
 PX_A_MM = 0.2127
 PX_A_CM = 0.02127
@@ -185,94 +226,6 @@ def analizar_radicula(BASE_DIR, FECHA=None, solo_faltantes=True, solo_carpetas=N
         else:
             print(f"ℹ️ {carpeta}: no había celdas nuevas para procesar.")
 
-"""
-def analizar_radicula(BASE_DIR, FECHA=None):
-    if FECHA is None:
-        FECHA = datetime.now().strftime("%d%m%Y")
-
-    PROC_DIR = os.path.join(BASE_DIR, "data/germinacion/data/procesadas/recortadas")
-    RES_BASE = os.path.join(BASE_DIR, "data/germinacion/data/resultados")
-    crear_directorio_si_no_existe(RES_BASE)
-
-    for carpeta in sorted(os.listdir(PROC_DIR)):
-        if not carpeta.startswith("recortes_"):
-            continue
-
-        carpeta_path = os.path.join(PROC_DIR, carpeta)
-        RES_DIR = os.path.join(RES_BASE, carpeta)
-        crear_directorio_si_no_existe(RES_DIR)
-
-        resultados = []
-
-        for fname in sorted(os.listdir(carpeta_path)):
-            if not fname.endswith(".jpg"):
-                continue
-
-            img_path = os.path.join(carpeta_path, fname)
-            img = cv2.imread(img_path)
-            if img is None:
-                continue
-
-            es_germinada = filtro_binaria(img)
-            if es_germinada:
-                long_px, img_out = detectar_radicula(img)
-                estado = "GERMINADA" if long_px > 10 else "NO GERMINADA"
-            else:
-                long_px, img_out, estado = 0, img.copy(), "NO GERMINADA"
-
-            long_mm = long_px * PX_A_MM
-            long_cm = long_px * PX_A_CM
-
-            resultados.append([
-                fname,
-                long_px if long_px > 0 else "N/G",
-                round(long_mm, 2) if long_px > 0 else "N/G",
-                round(long_cm, 2) if long_px > 0 else "N/G",
-                0,  # Long_r (radícula)
-                0,  # Long_h (hipocótilo)
-                estado
-            ])
-
-            out_path = os.path.join(RES_DIR, f"res_{fname}")
-            cv2.imwrite(out_path, img_out)
-
-        # --- Generar CSV ---
-        if resultados:
-            import pandas as pd
-            df = pd.DataFrame(resultados, columns=[
-                "Celda",
-                "Longitud_px",
-                "Longitud_mm",
-                "Longitud_cm",
-                "Long_r",
-                "Long_h",
-                "Estado"
-            ])
-            csv_path = os.path.join(RES_DIR, f"{carpeta}_germinacion.csv")
-            df.to_csv(csv_path, index=False)
-            print(f"✅ CSV guardado en {csv_path}")
-        else:
-            print(f"⚠️ No se generaron resultados en {carpeta}")
-"""
-
-def detectar_ultimo_punto_azul(img):
-    """
-    Devuelve el punto más extremo del trazo azul detectado en la imagen calibrada.
-    """
-    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    lower_blue = np.array([100, 120, 50])
-    upper_blue = np.array([130, 255, 255])
-    mask = cv2.inRange(hsv, lower_blue, upper_blue)
-
-    # Encontrar todos los píxeles del trazo azul
-    coords = cv2.findNonZero(mask)
-    if coords is None:
-        return None
-
-    # Calcular extremos (por ejemplo el más abajo o más a la derecha)
-    ultimo_punto = tuple(coords[coords[:, :, 1].argmax()][0])  # más abajo
-    return ultimo_punto
-
 def calibrar_r_simple(path_resultado):
     """
     Reabre una imagen calibrada y permite:
@@ -391,6 +344,72 @@ def calibrar_r_simple(path_resultado):
             return 0.0
         return float(sum(math.dist(pts[i-1], pts[i]) for i in range(1, len(pts))))
 
+    def _densify_polyline(pts):
+        """Devuelve una versión densa (pixel a pixel) del polilínea."""
+        if len(pts) < 2:
+            return pts
+        dense = []
+        last = None
+        for i in range(1, len(pts)):
+            x1, y1 = pts[i-1]
+            x2, y2 = pts[i]
+            n = int(max(abs(x2 - x1), abs(y2 - y1)))
+            if n == 0:
+                continue
+            xs = np.linspace(x1, x2, n + 1, dtype=int)
+            ys = np.linspace(y1, y2, n + 1, dtype=int)
+            for j in range(len(xs)):
+                p = (int(xs[j]), int(ys[j]))
+                if p != last:
+                    dense.append(p)
+                    last = p
+        return dense
+
+    def _project_on_path_click(pts, p):
+        """
+        Proyecta el clic p=(x,y) sobre una versión densa del trazo pts.
+        Devuelve (len_px_desde_inicio, punto_proyectado(x,y), None, 0.0)
+        """
+        dense = _densify_polyline(pts)
+        if len(dense) < 2:
+            return 0.0, (int(p[0]), int(p[1])), None, 0.0
+
+        arr = np.asarray(dense, dtype=np.int32)
+        dx = arr[:, 0] - int(p[0])
+        dy = arr[:, 1] - int(p[1])
+        i = int(np.argmin(dx*dx + dy*dy))  # índice del punto más cercano
+
+        # longitud acumulada hasta i (en píxeles)
+        cum = 0.0
+        for k in range(1, i + 1):
+            cum += math.dist(dense[k-1], dense[k])
+
+        return cum, (int(arr[i, 0]), int(arr[i, 1])), None, 0.0
+
+    def smooth_path(pts, smooth_factor=5, num_points=200):
+        """Suaviza una lista de puntos (x,y) con spline cúbico de forma robusta."""
+        if len(pts) < 4:
+            return pts
+
+        # eliminar puntos duplicados o demasiado cercanos
+        unique_pts = []
+        for p in pts:
+            if not unique_pts or (abs(p[0]-unique_pts[-1][0]) > 1 or abs(p[1]-unique_pts[-1][1]) > 1):
+                unique_pts.append(p)
+
+        if len(unique_pts) < 4:
+            return pts  # no hay suficiente info para suavizar
+
+        try:
+            x, y = zip(*unique_pts)
+            tck, u = splprep([x, y], s=smooth_factor)
+            u_new = np.linspace(0, 1, num_points)
+            x_new, y_new = splev(u_new, tck)
+            return list(zip(map(int, x_new), map(int, y_new)))
+        except Exception as e:
+            print(f"⚠️ Suavizado omitido ({e})")
+            return pts
+
     def _draw_cross(img, pt, size=6, color=(0, 255, 255), thickness=2):
         x, y = int(pt[0]), int(pt[1])
         cv2.line(img, (x-size, y), (x+size, y), color, thickness)
@@ -410,6 +429,25 @@ def calibrar_r_simple(path_resultado):
     nombre_celda = match.group(0) + ".jpg"
 
     carpeta_resultados = os.path.dirname(path_resultado)
+
+    # --- estado de bloqueo de codo desde CSV ---
+    codo_locked = False
+    try:
+        csv_files0 = [f for f in os.listdir(carpeta_resultados) if f.lower().endswith(".csv")]
+        if csv_files0:
+            csv_path_inicial = os.path.join(carpeta_resultados, csv_files0[0])
+            df0 = pd.read_csv(csv_path_inicial)
+            mask0 = df0["Celda"].astype(str).str.lower() == nombre_celda.lower()
+            if "Codo_bloqueado" in df0.columns:
+                vals = df0.loc[mask0, "Codo_bloqueado"]
+                if not vals.empty:
+                    codo_locked = bool(vals.values[0])
+    except Exception:
+        pass
+
+    # 🔹 Estado “vivo” para esta sesión (se puede resetear con R)
+    codo_lock_live = codo_locked
+
     carpeta_recortes = carpeta_resultados.replace(
         os.path.join("data", "germinacion", "data", "resultados"),
         os.path.join("data", "germinacion", "data", "procesadas", "recortadas")
@@ -474,11 +512,26 @@ def calibrar_r_simple(path_resultado):
         nonlocal puntos, path_pts, codo_select_mode, codo_len_px, codo_point, replace_total, last_blue
         if event == cv2.EVENT_LBUTTONDOWN:
             if codo_select_mode:
-                if len(path_pts) >= 2:
-                    codo_len_px, codo_point, _, _ = _project_on_polyline(path_pts, (x, y))
+                # Elegir correctamente el trazo sobre el cual proyectar
+                if replace_total:
+                    # En reemplazo total: proyectar sobre los puntos recién dibujados
+                    if len(puntos) >= 2:
+                        path_ref = puntos.copy()
+                    else:
+                        print("⚠ Dibujá el trazo antes de marcar el codo.")
+                        codo_select_mode = False
+                        return
+                else:
+                    # Sin reemplazo: usar el trazo completo actual (base + extensión)
+                    path_ref = path_pts if len(path_pts) >= 2 else puntos.copy()
+
+                if len(path_ref) >= 2:
+                    # 🔹 Usar proyección robusta sobre polilínea densificada
+                    codo_len_px, codo_point, _, _ = _project_on_path_click(path_ref, (x, y))
                     print(f"✚ Codo proyectado: {codo_point}  |  len_r_px={codo_len_px:.2f}")
                 else:
-                    print("⚠ No hay trazo para proyectar el codo.")
+                    print("⚠ No hay trazo válido para proyectar el codo.")
+
                 codo_select_mode = False
                 base = img_original if replace_total else img_calibrada
                 redibujar(base)
@@ -507,6 +560,9 @@ def calibrar_r_simple(path_resultado):
             break
 
         if key in (ord('c'), ord('C')):
+            if codo_lock_live:
+                print("🔒 CODO BLOQUEADO para esta celda. No se puede marcar codo (salvo REEMPLAZO con R).")
+                continue
             if len(path_pts) >= 2:
                 codo_select_mode = True
                 print("🟡 Modo codo: hacé click sobre el trazo (se proyecta sobre la polilínea).")
@@ -518,33 +574,46 @@ def calibrar_r_simple(path_resultado):
                 last = puntos.pop()
                 if path_pts and path_pts[-1] == last:
                     path_pts.pop()
-                # si el codo cae fuera por borrar puntos, lo invalidamos
-                if codo_point is not None and len(path_pts) < 2:
-                    codo_point, codo_len_px = None, None
                 base = img_original if replace_total else img_calibrada
                 redibujar(base)
                 print("↩ Último punto eliminado.")
+            elif codo_point is not None:
+                # 🔹 Permitir eliminar el codo si no hay puntos activos
+                codo_point, codo_len_px = None, None
+                base = img_original if replace_total else img_calibrada
+                redibujar(base)
+                print("✖ Codo eliminado.")
             else:
-                print("⚠ No hay puntos para borrar.")
+                print("⚠ No hay puntos ni codo para borrar.")
 
         elif key in (ord('r'), ord('R')):
-            # Reemplazo total
             replace_total = True
             puntos.clear()
-            path_pts = []              # empezamos de cero
+            path_pts = []
             codo_point = None
             codo_len_px = None
             last_blue = None
+            # 🔓 Al hacer R, permitimos marcar codo nuevamente
+            codo_lock_live = False
             base = img_original
             cv2.imshow("Calibracion Manual", base)
             print("🔄 REEMPLAZO TOTAL: dibujá desde cero. ENTER = reemplazar. ENTER sin puntos = N/G.")
 
         elif key == 13:  # ENTER
-            # elegir base de guardado
             base = img_original if replace_total else img_calibrada
-            out = base.copy()
 
-            # dibujar extensión y codo (si hay)
+            lock_value = None  # None = no tocar; True/False = escribir en CSV
+            if replace_total:
+                if codo_point is None:
+                    # confirmación si vas a guardar sin codo
+                    if not confirmar_guardado():
+                        redibujar(base)
+                        continue
+                    lock_value = True   # guardaste sin codo -> bloquear
+                else:
+                    lock_value = False  # guardaste con codo -> desbloquear
+
+            out = base.copy()
             for i in range(1, len(puntos)):
                 cv2.line(out, puntos[i-1], puntos[i], (255, 0, 0), 1)
             for p in puntos:
@@ -554,7 +623,6 @@ def calibrar_r_simple(path_resultado):
             cv2.imwrite(path_resultado, out)
             print(f"✅ Imagen guardada: {path_resultado}")
 
-            # actualizar CSV
             csv_files = [f for f in os.listdir(carpeta_resultados) if f.lower().endswith(".csv")]
             if not csv_files:
                 print("⚠ No encontré CSV en la carpeta de resultados.")
@@ -565,26 +633,23 @@ def calibrar_r_simple(path_resultado):
                 df = pd.read_csv(csv_path)
                 mask = df["Celda"].astype(str).str.lower() == nombre_celda.lower()
 
-                # asegurar numéricas
                 for col in ["Longitud_px", "Longitud_mm", "Longitud_cm"]:
                     df[col] = pd.to_numeric(df[col], errors="coerce")
 
+                if len(path_pts) > 3:
+                    path_pts = smooth_path(path_pts)
+
                 if replace_total:
-                    # --- REEMPLAZO TOTAL ---
                     if len(puntos) > 1:
-                        total_px = _len_list(puntos)
-                        total_cm = round(total_px * PX_A_CM, 2)
+                        total_px = _len_list(path_pts)
                         df.loc[mask, "Longitud_px"] = round(total_px, 2)
                         df.loc[mask, "Longitud_mm"] = round(total_px * PX_A_MM, 2)
-                        df.loc[mask, "Longitud_cm"] = total_cm
+                        df.loc[mask, "Longitud_cm"] = round(total_px * PX_A_CM, 2)
                         df.loc[mask, "Estado"] = "GERMINADA"
                     else:
-                        # N/G
                         df.loc[mask, ["Longitud_px", "Longitud_mm", "Longitud_cm"]] = "N/G"
                         df.loc[mask, "Estado"] = "NO GERMINADA"
-
                 else:
-                    # --- EXTENSIÓN ---
                     ext_px = _len_list(puntos)
                     prev_px = df.loc[mask, "Longitud_px"].fillna(0)
                     df.loc[mask, "Longitud_px"] = round(prev_px + ext_px, 2)
@@ -592,7 +657,6 @@ def calibrar_r_simple(path_resultado):
                     df.loc[mask, "Longitud_cm"] = round(df.loc[mask, "Longitud_px"] * PX_A_CM, 2)
                     df.loc[mask, "Estado"] = "GERMINADA"
 
-                # columnas R/H
                 if "Long_r" not in df.columns:
                     df["Long_r"] = 0.0
                 if "Long_h" not in df.columns:
@@ -600,26 +664,31 @@ def calibrar_r_simple(path_resultado):
                 df["Long_r"] = pd.to_numeric(df["Long_r"], errors="coerce").fillna(0.0)
                 df["Long_h"] = pd.to_numeric(df["Long_h"], errors="coerce").fillna(0.0)
 
-                # asignar R/H según haya codo o no
-                total_cm_val = df.loc[mask, "Longitud_cm"].values[0]
-                if isinstance(total_cm_val, str):
-                    # N/G en reemplazo total → R/H = 0
-                    df.loc[mask, ["Long_r", "Long_h"]] = 0.0
+                try:
+                    total_cm_val = float(df.loc[mask, "Longitud_cm"].values[0])
+                except Exception:
+                    total_cm_val = 0.0
+
+                if codo_point is not None and codo_len_px is not None and codo_len_px > 0:
+                    long_r_cm = round(codo_len_px * PX_A_CM, 2)
+                    long_h_cm = round(max(0.0, total_cm_val - long_r_cm), 2)
                 else:
-                    total_cm = float(total_cm_val)
-                    if codo_len_px is not None and len(path_pts) >= 2:
-                        # con codo → se particiona R/H
-                        r_cm = round(codo_len_px * PX_A_CM, 2)
-                        r_cm = max(0.0, min(r_cm, total_cm))
-                        h_cm = round(total_cm - r_cm, 2)
-                    else:
-                        # sin codo → R = total, H = 0 (lo que pediste)
-                        r_cm, h_cm = total_cm, 0.0
-                    df.loc[mask, "Long_r"] = r_cm
-                    df.loc[mask, "Long_h"] = h_cm
+                    long_r_cm = total_cm_val
+                    long_h_cm = 0.0
+
+                df.loc[mask, "Long_r"] = long_r_cm
+                df.loc[mask, "Long_h"] = long_h_cm
+
+                # ⬅️ Actualizar bloqueo SOLO en reemplazo total
+                if lock_value is not None:
+                    if "Codo_bloqueado" not in df.columns:
+                        df["Codo_bloqueado"] = False
+                    df.loc[mask, "Codo_bloqueado"] = bool(lock_value)
+                    # actualizar estado vivo (por si seguís en la misma sesión)
+                    codo_lock_live = bool(lock_value)
 
                 df.to_csv(csv_path, index=False)
-                print("📄 CSV actualizado.")
+                print("📄 CSV actualizado con suavizado y partición precisa.")
             except Exception as e:
                 print(f"❌ Error al actualizar CSV: {e}")
             break

@@ -14,3 +14,15 @@ Thumbs.db
 # IDEs
 .vscode/
 .idea/
+
+# Ignorar imágenes y resultados de procesamiento
+data/germinacion/data/originales/*
+data/germinacion/data/procesadas/placa_recortada/*
+data/germinacion/data/procesadas/recortadas/*
+data/germinacion/data/resultados/*
+
+# Pero mantener las carpetas vacías
+!data/germinacion/data/originales/.gitkeep
+!data/germinacion/data/procesadas/placa_recortada/.gitkeep
+!data/germinacion/data/procesadas/recortadas/.gitkeep
+!data/germinacion/data/resultados/.gitkeep
