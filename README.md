@@ -4,9 +4,9 @@
 GerminIA Lab es una aplicación de escritorio desarrollada en Python + Tkinter + OpenCV + Pandas, diseñada para automatizar el análisis de ensayos de germinación.
 El sistema detecta radículas (raíces embrionarias) en celdas de placas de Petri, mide su longitud en píxeles y milímetros, y genera reportes en CSV/Excel con imágenes procesadas y clasificaciones automáticas o manuales.
 
-## 🧠 Características principales
+# 🧠 Características principales
 
-## 📸 Gestión visual de imágenes: subida, vista de pendientes y resultados.
+# 📸 Gestión visual de imágenes: subida, vista de pendientes y resultados.
 
 ## 🧩 Procesamiento automático:
 
@@ -75,7 +75,9 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 ## 🚀 Ejecución
+```bash
 python main.py
+```
 
 🖥️ Uso general
 
