@@ -26,3 +26,11 @@ data/germinacion/data/resultados/*
 !data/germinacion/data/procesadas/placa_recortada/.gitkeep
 !data/germinacion/data/procesadas/recortadas/.gitkeep
 !data/germinacion/data/resultados/.gitkeep
+
+# Archivos generados automáticamente
+GerminIA.spec
+instalador.iss
+
+# Carpetas de compilación y salida
+dist/
+build/
