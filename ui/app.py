@@ -16,6 +16,8 @@ from core.marcar_rectangulos import marcar_rectangulos
 from core.cortar_celdas import cortar_celdas
 from core.detectar_radicula import calibrar_r_simple, analizar_radicula
 
+VALID_EXTS = (".jpg", ".jpeg", ".png", ".jfif", ".bmp", ".tif", ".tiff")
+
 class GerminIAApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -143,7 +145,7 @@ class GerminIAApp(tk.Tk):
         # --- 1️⃣ Buscar imágenes nuevas (no procesadas aún) ---
         for root, _, files in os.walk(base_originales):
             for f in files:
-                if f.lower().endswith((".jpg", ".jpeg", ".png")):
+                if f.lower().endswith(VALID_EXTS):
                     nombre_base = os.path.splitext(f)[0]
                     # buscar si hay alguna carpeta de resultados que contenga ese nombre
                     ya_proc = any(nombre_base in c for c in os.listdir(base_res))
@@ -158,7 +160,7 @@ class GerminIAApp(tk.Tk):
                 continue
 
             for f in files:
-                if f.startswith("celda_") and f.lower().endswith(".jpg"):
+                if f.startswith("celda_") and f.lower().endswith(VALID_EXTS):
                     path_celda = os.path.join(root, f)
                     nombre_carpeta = os.path.basename(root)
                     carpeta_resultados = os.path.join(base_res, nombre_carpeta)
@@ -224,7 +226,9 @@ class GerminIAApp(tk.Tk):
     def subir_imagenes(self):
         rutas = filedialog.askopenfilenames(
             title="Seleccionar imágenes",
-            filetypes=[("Imágenes JPG/PNG", "*.jpg;*.png")]
+            filetypes=[
+                ("Imágenes compatibles", "*.jpg;*.jpeg;*.png;*.jfif;*.bmp;*.tif;*.tiff")
+            ]
         )
         if not rutas:
             return
@@ -280,7 +284,7 @@ class GerminIAApp(tk.Tk):
 
                 originales = [
                     f for f in os.listdir(carpeta_actual)
-                    if f.lower().endswith((".jpg", ".jpeg", ".png"))
+                    if f.lower().endswith(VALID_EXTS)
                 ]
                 if not originales:
                     print("⚠️ No se encontraron imágenes para procesar.")
@@ -352,7 +356,7 @@ class GerminIAApp(tk.Tk):
         imagenes = [
             os.path.join(carpeta, f)
             for f in os.listdir(carpeta)
-            if f.lower().endswith((".jpg", ".jpeg", ".png"))
+            if f.lower().endswith(VALID_EXTS)
         ]
         if not imagenes:
             messagebox.showinfo("Vacío", f"No hay imágenes en {carpeta}")
@@ -603,9 +607,20 @@ class GerminIAApp(tk.Tk):
         # solo resultados (res_*.jpg), ordenados por número de celda
         img_files = sorted(
             [f for f in os.listdir(carpeta)
-            if f.lower().endswith((".jpg", ".jpeg", ".png")) and f.startswith("res_")],
+            if f.lower().endswith(VALID_EXTS) and f.startswith("res_")],
             key=_num
         )
+
+        # === Botón CORREGIR CELDAS ===
+        corregir_frame = tk.Frame(frame, bg="#f8f9fa")
+        corregir_frame.pack(pady=(5, 10))
+
+        ttk.Button(
+            corregir_frame,
+            text="🛠️ Corregir celdas",
+            style="Info.TButton",
+            command=self.corregir_celdas
+        ).pack(pady=5)
 
         thumbs_outer = tk.Frame(frame, bg="#f8f9fa")
         thumbs_outer.pack(fill="x", pady=(5, 15))
@@ -757,6 +772,147 @@ class GerminIAApp(tk.Tk):
         tree.pack(fill="both", expand=True)
 
     # ============================================================
+    # FUNCIÓN PARA CORREGIR CELDAS MANUALMENTE
+    # ============================================================
+    # ============================================================
+    # FUNCIÓN PARA CORREGIR CELDAS MANUALMENTE
+    # ============================================================
+    def corregir_celdas(self):
+        import cv2, os, shutil
+        from tkinter import messagebox
+        from core.detectar_radicula import analizar_radicula
+        from datetime import datetime
+
+        try:
+            carpeta_resultado = self._current_result_name
+            if not carpeta_resultado:
+                messagebox.showwarning("Error", "No hay carpeta de resultados seleccionada.")
+                return
+
+            base = os.path.join("data", "germinacion", "data")
+            ruta_resultado = os.path.join(base, "resultados", carpeta_resultado)
+            carpeta_recortes = os.path.join(base, "procesadas", "recortadas", carpeta_resultado)
+
+            # Buscar placa original relacionada
+            ruta_original = None
+            base_placas = os.path.join(base, "procesadas", "placa_recortada")
+            for f in os.listdir(base_placas):
+                if carpeta_resultado.split("_")[1] in f:
+                    ruta_original = os.path.join(base_placas, f)
+                    break
+
+            if not ruta_original or not os.path.exists(ruta_original):
+                messagebox.showerror("Error", "No se encontró la placa original asociada.")
+                return
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            return
+
+        # --- Mostrar imagen y permitir selección ---
+        img = cv2.imread(ruta_original)
+        if img is None:
+            messagebox.showerror("Error", "No se pudo abrir la placa original.")
+            return
+
+        clone = img.copy()
+        rects = []
+        drawing = [False, (0, 0)]
+
+        def draw_rect(event, x, y, flags, param):
+            nonlocal drawing, rects, clone, img
+            if event == cv2.EVENT_LBUTTONDOWN:
+                drawing = [True, (x, y)]
+            elif event == cv2.EVENT_MOUSEMOVE and drawing[0]:
+                img = clone.copy()
+                for i, (x1, y1, x2, y2) in enumerate(rects, start=1):
+                    cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                    cv2.putText(img, str(i), (x1 + 5, y1 + 20),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                cv2.rectangle(img, drawing[1], (x, y), (0, 0, 255), 2)
+            elif event == cv2.EVENT_LBUTTONUP:
+                drawing[0] = False
+                x1, y1 = drawing[1]
+                rects.append((x1, y1, x, y))
+                img = clone.copy()
+                for i, (rx1, ry1, rx2, ry2) in enumerate(rects, start=1):
+                    cv2.rectangle(img, (rx1, ry1), (rx2, ry2), (0, 255, 0), 2)
+                    cv2.putText(img, str(i), (rx1 + 5, ry1 + 20),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+        cv2.namedWindow("Marcar celdas (ENTER = guardar, Z = deshacer, ESC = cancelar)")
+        cv2.setMouseCallback("Marcar celdas (ENTER = guardar, Z = deshacer, ESC = cancelar)", draw_rect)
+
+        while True:
+            temp = img.copy()
+            cv2.imshow("Marcar celdas (ENTER = guardar, Z = deshacer, ESC = cancelar)", temp)
+            key = cv2.waitKey(1) & 0xFF
+
+            if key == ord('z'):  # 🔙 Deshacer último rectángulo
+                if rects:
+                    rects.pop()
+                    img = clone.copy()
+                    for i, (x1, y1, x2, y2) in enumerate(rects, start=1):
+                        cv2.rectangle(img, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                        cv2.putText(img, str(i), (x1 + 5, y1 + 20),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    print("↩️ Último rectángulo eliminado.")
+                else:
+                    print("⚠️ No hay más rectángulos para eliminar.")
+
+            elif key == 13:  # ENTER → guardar
+                break
+            elif key == 27:  # ESC → cancelar
+                rects = []
+                break
+
+        cv2.destroyAllWindows()
+
+        if not rects:
+            messagebox.showinfo("Cancelado", "No se marcaron celdas.")
+            return
+
+        os.makedirs(carpeta_recortes, exist_ok=True)
+
+        # --- Eliminar recortes anteriores ---
+        for f in os.listdir(carpeta_recortes):
+            try:
+                os.remove(os.path.join(carpeta_recortes, f))
+            except Exception:
+                pass
+
+        # --- Guardar nuevos recortes ---
+        for i, (x1, y1, x2, y2) in enumerate(rects, start=1):
+            x1, x2 = sorted([x1, x2])
+            y1, y2 = sorted([y1, y2])
+            recorte = clone[y1:y2, x1:x2]
+            salida = os.path.join(carpeta_recortes, f"celda_{i:02d}.jpg")
+            cv2.imwrite(salida, recorte)
+            print(f"✅ Guardado: {salida}")
+
+        messagebox.showinfo("Listo", f"Se guardaron {len(rects)} celdas nuevas correctamente.")
+
+        # --- Limpiar resultados anteriores ---
+        for f in os.listdir(ruta_resultado):
+            if f.startswith("res_") or f.endswith(".csv"):
+                os.remove(os.path.join(ruta_resultado, f))
+
+        # --- Ejecutar nuevamente la detección ---
+        base_dir = os.getcwd()
+        fecha = datetime.now().strftime("%d%m%Y")
+
+        print("🔁 Reanalizando radículas para las nuevas celdas...")
+        analizar_radicula(base_dir, fecha, solo_carpetas=[carpeta_resultado])
+
+        messagebox.showinfo("Reprocesamiento", "✅ Se analizaron las nuevas celdas y se regeneraron los resultados.")
+
+        # --- Recargar CSV actualizado ---
+        csv_files = [f for f in os.listdir(ruta_resultado) if f.lower().endswith(".csv")]
+        if csv_files:
+            nuevo_csv = os.path.join(ruta_resultado, csv_files[0])
+            self.mostrar_csv(nuevo_csv, carpeta_resultado)
+
+
+    # ============================================================
     # EXPORTAR A EXCEL
     # ============================================================
     def exportar_excel(self):
@@ -766,10 +922,10 @@ class GerminIAApp(tk.Tk):
             return
 
         # columnas que se exportan (lo mismo que ves en la tabla)
-        cols = ["Celda", "Longitud_cm", "Long_r", "Long_h", "Estado"]
+        cols = ["Celda", "Longitud_cm", "Long_h", "Long_r", "Estado"]
         df = self._current_df.copy()
          # --- EVITAR NaN EN LA EXPORTACIÓN ---
-        for c in ["Longitud_cm", "Long_r", "Long_h"]:
+        for c in ["Longitud_cm", "Long_h", "Long_r"]:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).round(2)
 

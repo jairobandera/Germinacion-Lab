@@ -4,6 +4,10 @@ import os
 import shutil
 from datetime import datetime
 
+# Extensiones de imagen válidas
+VALID_EXTS = (".jpg", ".jpeg", ".png", ".jfif", ".bmp", ".tif", ".tiff")
+
+
 def recortar_placas(BASE_DIR, FECHA=None):
     if FECHA is None:
         FECHA = datetime.now().strftime("%d%m%Y")
@@ -19,11 +23,11 @@ def recortar_placas(BASE_DIR, FECHA=None):
 
     for file in os.listdir(ORIG_BASE):
         full_path = os.path.join(ORIG_BASE, file)
-        if file.lower().endswith((".jpg", ".jpeg", ".png")) and os.path.isfile(full_path):
+        if file.lower().endswith(VALID_EXTS) and os.path.isfile(full_path):
             shutil.move(full_path, os.path.join(DATA_DIR, file))
 
     for filename in sorted(os.listdir(DATA_DIR)):
-        if not filename.lower().endswith((".jpg", ".png", ".jpeg")):
+        if not filename.lower().endswith(VALID_EXTS):
             continue
 
         img_path = os.path.join(DATA_DIR, filename)

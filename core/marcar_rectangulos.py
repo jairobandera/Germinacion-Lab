@@ -3,6 +3,10 @@ import numpy as np
 import os
 from datetime import datetime
 
+# Extensiones de imagen válidas
+VALID_EXTS = (".jpg", ".jpeg", ".png", ".jfif", ".bmp", ".tif", ".tiff")
+
+
 def marcar_rectangulos(BASE_DIR, FECHA=None):
     if FECHA is None:
         FECHA = datetime.now().strftime("%d%m%Y")
@@ -27,7 +31,7 @@ def marcar_rectangulos(BASE_DIR, FECHA=None):
         return box
 
     for filename in sorted(os.listdir(PROC_BASE)):
-        if not filename.lower().endswith((".jpg", ".jpeg", ".png")):
+        if not filename.lower().endswith(VALID_EXTS):
             continue
         img_path = os.path.join(PROC_BASE, filename)
         img = cv2.imread(img_path)

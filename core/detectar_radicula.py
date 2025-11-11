@@ -19,6 +19,10 @@ except Exception:
 
 import ctypes  # para MessageBox de Windows (fallback)
 
+# Extensiones de imagen válidas
+VALID_EXTS = (".jpg", ".jpeg", ".png", ".jfif", ".bmp", ".tif", ".tiff")
+
+
 def confirmar_guardado(
     line1="¿Guardar sin marcar codo?",
     line2="Luego no se podrá marcar el codo.",
@@ -156,7 +160,7 @@ def analizar_radicula(BASE_DIR, FECHA=None, solo_faltantes=True, solo_carpetas=N
         RES_DIR = os.path.join(RES_BASE, carpeta)
         crear_directorio_si_no_existe(RES_DIR)
 
-        celda_files = [f for f in sorted(os.listdir(carpeta_path)) if f.lower().endswith(".jpg")]
+        celda_files = [f for f in sorted(os.listdir(carpeta_path)) if f.lower().endswith(VALID_EXTS)]
         csv_path = os.path.join(RES_DIR, f"{carpeta}_germinacion.csv")
 
         # evitar reprocesar celdas ya presentes
@@ -171,7 +175,7 @@ def analizar_radicula(BASE_DIR, FECHA=None, solo_faltantes=True, solo_carpetas=N
 
         # si está completo y me pediste solo faltantes, saltamos
         if solo_faltantes:
-            res_files = [f for f in os.listdir(RES_DIR) if f.lower().endswith((".jpg", ".jpeg", ".png")) and f.startswith("res_")]
+            res_files = [f for f in os.listdir(RES_DIR) if f.lower().endswith((VALID_EXTS)) and f.startswith("res_")]
             if os.path.exists(csv_path) and len(res_files) >= len(celda_files):
                 print(f"⏭️ Saltando {carpeta}: ya procesada por completo.")
                 continue
@@ -670,8 +674,8 @@ def calibrar_r_simple(path_resultado):
                     total_cm_val = 0.0
 
                 if codo_point is not None and codo_len_px is not None and codo_len_px > 0:
-                    long_r_cm = round(codo_len_px * PX_A_CM, 2)
-                    long_h_cm = round(max(0.0, total_cm_val - long_r_cm), 2)
+                    long_h_cm = round(codo_len_px * PX_A_CM, 2)
+                    long_r_cm = round(max(0.0, total_cm_val - long_h_cm), 2)
                 else:
                     long_r_cm = total_cm_val
                     long_h_cm = 0.0

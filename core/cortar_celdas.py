@@ -3,6 +3,10 @@ import numpy as np
 import os
 from datetime import datetime
 
+# Extensiones de imagen válidas
+VALID_EXTS = (".jpg", ".jpeg", ".png", ".jfif", ".bmp", ".tif", ".tiff")
+
+
 def cortar_celdas(BASE_DIR, FECHA=None):
     if FECHA is None:
         FECHA = datetime.now().strftime("%d%m%Y")
@@ -12,7 +16,7 @@ def cortar_celdas(BASE_DIR, FECHA=None):
     os.makedirs(OUT_BASE, exist_ok=True)
 
     for placa in os.listdir(PROC_DIR):
-        if not placa.lower().endswith((".jpg", ".jpeg", ".png")):
+        if not placa.lower().endswith((VALID_EXTS)):
             continue
 
         nombre_base = os.path.splitext(placa)[0]
